@@ -4,7 +4,6 @@ import os
 import time
 import functools
 from pika.exceptions import AMQPConnectionError
-from utils.date_utils import parse_datetime
 
 from consumers.student_consumer import (
     student_register_callback,
@@ -18,19 +17,32 @@ from consumers.employee_consumer import (
     employee_status_changed_callback,
     employee_deleted_callback,
 )
+from consumers.financial_consumer import (
+    # Novos consumidores para filas reais
+    finance_expense_registered_callback,
+    finance_expense_deleted_callback,
+    employee_paid_queue_callback,
+    employee_dismissed_queue_callback,
+    # Callbacks legados (mantidos para compatibilidade)
+    expense_added_callback,
+    revenue_added_callback,
+    student_payment_callback,
+    employee_payment_callback,
+)
+from services.financial_service import FinancialService
 
 # Variáveis de ambiente vindas do Docker
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
-RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
-RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "admin")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "admin")
 
-QUEUES = os.getenv("QUEUES", "cadastro-aluno-queue,cadastro-funcionario-queue").split(",")
+QUEUES = os.getenv("QUEUES", "cadastro-aluno-queue,analytics-cadastro-funcionario-queue,finance.expense.registered,finance.expense.deleted,employee-paid-queue,employee-dismissed-queue,expense-added-queue,revenue-added-queue,student-payment-queue,employee-payment-queue").split(",")
 
 DB_CONFIG = {
-    "dbname": os.getenv("DB_NAME"),
-    "user": os.getenv("DB_USER"),
-    "password": os.getenv("DB_PASS"),
-    "host": os.getenv("DB_HOST"),
+    "dbname": os.getenv("DB_NAME", "analytics_db"),  
+    "user": os.getenv("DB_USER", "analytics_user"),        
+    "password": os.getenv("DB_PASS", "analytics_pass"),   
+    "host": os.getenv("DB_HOST", "localhost"),
     "port": 5432
 }
 
@@ -39,6 +51,11 @@ try:
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     print("[✔] Conectado ao PostgreSQL")
+    
+    # Inicializar serviço financeiro (cria as tabelas automaticamente)
+    financial_service = FinancialService(cur, conn)
+    print("[✔] Serviço financeiro inicializado")
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS students_registered (
             id UUID PRIMARY KEY,
@@ -52,11 +69,22 @@ try:
             id UUID PRIMARY KEY,
             role VARCHAR(30),
             active BOOLEAN,
-            registration_date TIMESTAMP
+            registration_date TIMESTAMP,
+            last_update_date TIMESTAMP,
+            termination_date TIMESTAMP
         );
     """)
     conn.commit()
     print("[✔] Tabelas analíticas prontas.")
+    
+    # População automática da tabela profit (se necessário)
+    try:
+        from seed.auto_populate import auto_populate_profit_data
+        auto_populate_profit_data(cur, conn)
+    except Exception as e:
+        print(f"[⚠] Aviso: Erro na população automática: {e}")
+        print("[ℹ] A aplicação continuará normalmente")
+        
 except Exception as e:
     print("[✖] Erro ao conectar ao PostgreSQL:", e)
     exit(1)
@@ -81,14 +109,29 @@ channel = connection.channel()
 
 # Mapeamento de callbacks por fila
 CALLBACKS = {
+    # Filas de estudantes
     "cadastro-aluno-queue": student_register_callback,
-    "cadastro-funcionario-queue": employee_register_callback,
     "student-plan-changed-queue": student_plan_changed_callback,
     "student-status-changed-queue": student_status_changed_callback,
     "student-deleted-queue": student_deleted_callback,
+    
+    # Filas de funcionários
+    "analytics-cadastro-funcionario-queue": employee_register_callback, # Fila nova
     "employee-role-changed-queue": employee_role_changed_callback,
     "employee-status-changed-queue": employee_status_changed_callback,
     "employee-deleted-queue": employee_deleted_callback,
+    
+    # Novas filas financeiras reais
+    "finance.expense.registered": finance_expense_registered_callback,
+    "finance.expense.deleted": finance_expense_deleted_callback,
+    "employee-paid-queue": employee_paid_queue_callback,
+    "employee-dismissed-queue": employee_dismissed_queue_callback,
+    
+    # Filas legadas (compatibilidade)
+    "expense-added-queue": expense_added_callback,
+    "revenue-added-queue": revenue_added_callback,
+    "student-payment-queue": student_payment_callback,
+    "employee-payment-queue": employee_payment_callback,
 }
 
 for queue in QUEUES:

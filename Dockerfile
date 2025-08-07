@@ -9,6 +9,9 @@ COPY analytics_consumer.py .
 COPY consumers consumers
 COPY utils utils
 COPY models models
+COPY services services
+COPY sql sql
+COPY seed seed
 
 ENV PYTHONPATH=/app
 
