@@ -3,6 +3,8 @@ import psycopg2
 import os
 import time
 import functools
+import signal
+import sys
 from pika.exceptions import AMQPConnectionError
 
 from consumers.student_consumer import (
@@ -36,14 +38,26 @@ RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "admin")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "admin")
 
-QUEUES = os.getenv("QUEUES", "cadastro-aluno-queue,analytics-cadastro-funcionario-queue,finance.expense.registered,finance.expense.deleted,employee-paid-queue,employee-dismissed-queue,expense-added-queue,revenue-added-queue,student-payment-queue,employee-payment-queue").split(",")
+QUEUES = os.getenv("QUEUES", "cadastro-aluno-queue," \
+                    "analytics-cadastro-funcionario-queue," \
+                    "analytics-student-deleted-queue," \
+                    "analytics-employee-deleted-queue," \
+                    "analytics-employee-status-changed-queue," \
+                    "finance.expense.registered," \
+                    "finance.expense.deleted," \
+                    "employee-paid-queue," \
+                    "employee-dismissed-queue," \
+                    "expense-added-queue," \
+                    "revenue-added-queue," \
+                    "student-payment-queue," \
+                    "employee-payment-queue").split(",")
 
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "analytics_db"),  
     "user": os.getenv("DB_USER", "analytics_user"),        
     "password": os.getenv("DB_PASS", "analytics_pass"),   
     "host": os.getenv("DB_HOST", "localhost"),
-    "port": 5432
+    "port": 5433
 }
 
 # Conexão com PostgreSQL e criação das tabelas
@@ -107,21 +121,55 @@ else:
 
 channel = connection.channel()
 
+# Função para graceful shutdown
+def signal_handler(signum, frame):
+    """Trata o sinal de interrupção (Ctrl+C)"""
+    print("\n[ℹ] Sinal de interrupção recebido. Encerrando todas as conexões...")
+    
+    try:
+        # Para o consumo de mensagens
+        if channel and not channel.is_closed:
+            print("[→] Parando o consumo de mensagens...")
+            channel.stop_consuming()
+        
+        # Fecha a conexão com RabbitMQ
+        if connection and not connection.is_closed:
+            print("[→] Fechando conexão com RabbitMQ...")
+            connection.close()
+        
+        # Fecha a conexão com PostgreSQL
+        if cur and not cur.closed:
+            cur.close()
+        if conn and not conn.closed:
+            print("[→] Fechando conexão com PostgreSQL...")
+            conn.close()
+            
+        print("[✔] Aplicação encerrada com sucesso!")
+        
+    except Exception as e:
+        print(f"[⚠] Erro durante o encerramento: {e}")
+    
+    finally:
+        sys.exit(0)
+
+# Registra o handler para SIGINT (Ctrl+C)
+signal.signal(signal.SIGINT, signal_handler)
+
 # Mapeamento de callbacks por fila
 CALLBACKS = {
     # Filas de estudantes
     "cadastro-aluno-queue": student_register_callback,
     "student-plan-changed-queue": student_plan_changed_callback,
     "student-status-changed-queue": student_status_changed_callback,
-    "student-deleted-queue": student_deleted_callback,
+    "analytics-student-deleted-queue": student_deleted_callback, # Fila nova
     
     # Filas de funcionários
     "analytics-cadastro-funcionario-queue": employee_register_callback, # Fila nova
     "employee-role-changed-queue": employee_role_changed_callback,
-    "employee-status-changed-queue": employee_status_changed_callback,
-    "employee-deleted-queue": employee_deleted_callback,
+    "analytics-employee-deleted-queue": employee_deleted_callback, # Fila nova
     
     # Novas filas financeiras reais
+    "employee-status-changed-queue": employee_status_changed_callback,
     "finance.expense.registered": finance_expense_registered_callback,
     "finance.expense.deleted": finance_expense_deleted_callback,
     "employee-paid-queue": employee_paid_queue_callback,
@@ -149,4 +197,16 @@ for queue in QUEUES:
         print(f"[!] Nenhum callback definido para a fila '{queue}'.")
 
 print("[→] Escutando as filas analíticas...")
-channel.start_consuming()
+print("[ℹ] Pressione Ctrl+C para encerrar a aplicação de forma segura")
+
+try:
+    channel.start_consuming()
+except KeyboardInterrupt:
+    # Isso nunca deveria ser alcançado devido ao signal handler, 
+    # mas é uma boa prática ter como fallback
+    print("\n[ℹ] Interrupção detectada. Encerrando...")
+    signal_handler(None, None)
+except Exception as e:
+    print(f"[✖] Erro inesperado durante o consumo: {e}")
+    # Tenta fazer cleanup mesmo em caso de erro
+    signal_handler(None, None)
