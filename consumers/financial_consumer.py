@@ -1,4 +1,5 @@
 import json
+import requests
 from decimal import Decimal
 from datetime import datetime
 from utils.date_utils import parse_datetime
@@ -107,6 +108,69 @@ def employee_dismissed_queue_callback(ch, method, properties, body, cur, conn):
         
     except Exception as e:
         print(f"[✖] Erro ao processar demissão de funcionário: {e}")
+        conn.rollback()
+
+def plan_subscription_paid_callback(ch, method, properties, body, cur, conn):
+    """Processa pagamentos de assinaturas de planos da fila plan-subscription-paid"""
+    try:
+        data = json.loads(body)
+        
+        plan_id = data.get('planId')
+        installments = data.get('installments', 1)
+        customer_id = data.get('customerId')
+        
+        if not plan_id:
+            print(f"[!] planId não encontrado no payload")
+            return
+        
+        # Fazer GET para obter informações do plano
+        try:
+            response = requests.get(f"http://localhost:8080/payment/api/plans/{plan_id}")
+            response.raise_for_status()
+            plan_data = response.json()
+            
+            # Extrair o preço do primeiro item do plano
+            items = plan_data.get('items', [])
+            if not items:
+                print(f"[!] Nenhum item encontrado no plano {plan_id}")
+                return
+            
+            pricing_scheme = items[0].get('pricingScheme', {})
+            price_in_cents = pricing_scheme.get('price', 0)
+            
+            if price_in_cents == 0:
+                print(f"[!] Preço não encontrado para o plano {plan_id}")
+                return
+            
+            # Converter centavos para reais
+            total_price = Decimal(str(price_in_cents)) / Decimal('100')
+            
+            # Calcular valor por parcela
+            installment_value = total_price / Decimal(str(installments))
+            
+            # Obter a data atual para registrar a receita
+            payment_date = datetime.now()
+            
+            # Construir descrição
+            plan_name = plan_data.get('name', f'Plano {plan_id}')
+            description = f"Assinatura {plan_name} - Cliente {customer_id}"
+            if installments > 1:
+                description += f" (1/{installments} parcelas)"
+            
+            # Adicionar receita ao sistema financeiro
+            from services.financial_service import FinancialService
+            financial_service = FinancialService(cur, conn)
+            financial_service.add_revenue(installment_value, description, payment_date)
+            
+            print(f"[✔] Assinatura processada: R$ {installment_value} - {description}")
+            print(f"[ℹ] Preço total: R$ {total_price}, Parcelas: {installments}")
+            
+        except requests.RequestException as e:
+            print(f"[✖] Erro ao buscar informações do plano {plan_id}: {e}")
+            conn.rollback()
+            
+    except Exception as e:
+        print(f"[✖] Erro ao processar assinatura de plano: {e}")
         conn.rollback()
 
 # ===== CALLBACKS LEGACY (MANTIDOS PARA COMPATIBILIDADE) =====

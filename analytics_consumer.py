@@ -25,6 +25,7 @@ from consumers.financial_consumer import (
     finance_expense_deleted_callback,
     employee_paid_queue_callback,
     employee_dismissed_queue_callback,
+    plan_subscription_paid_callback,
     # Callbacks legados (mantidos para compatibilidade)
     expense_added_callback,
     revenue_added_callback,
@@ -47,6 +48,7 @@ QUEUES = os.getenv("QUEUES", "cadastro-aluno-queue," \
                     "finance.expense.deleted," \
                     "employee-paid-queue," \
                     "employee-dismissed-queue," \
+                    "plan-subscription-paid," \
                     "expense-added-queue," \
                     "revenue-added-queue," \
                     "student-payment-queue," \
@@ -57,7 +59,7 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "analytics_user"),        
     "password": os.getenv("DB_PASS", "analytics_pass"),   
     "host": os.getenv("DB_HOST", "localhost"),
-    "port": 5432
+    "port": 5433
 }
 
 # Conexão com PostgreSQL e criação das tabelas
@@ -174,6 +176,7 @@ CALLBACKS = {
     "finance.expense.deleted": finance_expense_deleted_callback,
     "employee-paid-queue": employee_paid_queue_callback,
     "employee-dismissed-queue": employee_dismissed_queue_callback,
+    "plan-subscription-paid": plan_subscription_paid_callback,
     
     # Filas legadas (compatibilidade)
     "expense-added-queue": expense_added_callback,

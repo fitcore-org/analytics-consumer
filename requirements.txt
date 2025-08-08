@@ -1,4 +1,5 @@
 pika==1.3.2        # RabbitMQ client
 psycopg2-binary    # PostgreSQL driver
 python-dotenv
-python-dateutil    # Date utilities for profit data generation      
+python-dateutil    # Date utilities for profit data generation
+requests           # HTTP client for API calls      
