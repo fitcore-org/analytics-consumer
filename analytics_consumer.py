@@ -48,7 +48,7 @@ QUEUES = os.getenv("QUEUES", "cadastro-aluno-queue," \
                     "finance.expense.deleted," \
                     "employee-paid-queue," \
                     "employee-dismissed-queue," \
-                    "plan-subscription-paid," \
+                    "analytics-plan-subscription-paid," \
                     "expense-added-queue," \
                     "revenue-added-queue," \
                     "student-payment-queue," \
@@ -176,7 +176,7 @@ CALLBACKS = {
     "finance.expense.deleted": finance_expense_deleted_callback,
     "employee-paid-queue": employee_paid_queue_callback,
     "employee-dismissed-queue": employee_dismissed_queue_callback,
-    "plan-subscription-paid": plan_subscription_paid_callback,
+    "analytics-plan-subscription-paid": plan_subscription_paid_callback,
     
     # Filas legadas (compatibilidade)
     "expense-added-queue": expense_added_callback,
