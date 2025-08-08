@@ -57,7 +57,7 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "analytics_user"),        
     "password": os.getenv("DB_PASS", "analytics_pass"),   
     "host": os.getenv("DB_HOST", "localhost"),
-    "port": 5433
+    "port": 5432
 }
 
 # Conexão com PostgreSQL e criação das tabelas
